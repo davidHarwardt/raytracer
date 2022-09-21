@@ -1,4 +1,5 @@
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use cgmath::{Point3, Vector3, InnerSpace};
 
@@ -6,10 +7,10 @@ use crate::material::Material;
 use crate::ray::Ray;
 use crate::types::Float;
 
-pub struct HitRecord<'a> {
+pub struct HitRecord {
     pub point: Point3<Float>,
     pub normal: Vector3<Float>,
-    pub material: &'a dyn Material,
+    pub material: Arc<dyn Material + Send + Sync>,
     pub front_face: bool,
     pub t: Float,
 }
@@ -18,23 +19,23 @@ pub trait Hittable {
     fn hit(&self, ray: &Ray, t_range: RangeInclusive<Float>) -> Option<HitRecord>;
 }
 
-pub struct Sphere<'a> {
+pub struct Sphere {
     pub center: Point3<Float>,
     pub radius: Float,
-    pub material: &'a dyn Material,
+    pub material: Arc<dyn Material + Sync + Send>,
 }
 
-impl<'a> Sphere<'a> {
-    pub fn new(center: impl Into<Point3<Float>>, radius: Float, material: &'a dyn Material) -> Self {
+impl Sphere {
+    pub fn new(center: impl Into<Point3<Float>>, radius: Float, material: &Arc<dyn Material + Send + Sync>) -> Self {
         Self {
             center: center.into(),
             radius,
-            material,
+            material: Arc::clone(material),
         }
     }
 }
 
-impl<'a> Hittable for Sphere<'a> {
+impl Hittable for Sphere {
     fn hit(&self, ray: &Ray, t_range: RangeInclusive<Float>) -> Option<HitRecord> {
         let oc = ray.origin - self.center;
         let a = ray.direction.magnitude2();
@@ -59,7 +60,7 @@ impl<'a> Hittable for Sphere<'a> {
                 t: root,
                 point,
                 normal: if front_face { normal } else { -normal },
-                material: self.material,
+                material: Arc::clone(&self.material),
                 front_face,
             })
         }
@@ -67,17 +68,17 @@ impl<'a> Hittable for Sphere<'a> {
 }
 
 
-pub struct HittableList<'a> {
-    objects: Vec<Box<dyn Hittable + 'a>>,
+pub struct HittableList {
+    objects: Vec<Arc<dyn Hittable + Sync + Send>>,
 }
 
-impl<'a> HittableList<'a> {
+impl HittableList {
     pub fn new() -> Self {
         Self { objects: Vec::new() }
     }
     
-    pub fn add<T: Hittable + 'a>(&mut self, obj: T) {
-        self.objects.push(Box::new(obj));
+    pub fn add(&mut self, obj: Arc<dyn Hittable + Sync + Send>) {
+        self.objects.push(obj);
     }
     
     pub fn hit(&self, ray: &Ray, t_range: RangeInclusive<Float>) -> Option<HitRecord> {

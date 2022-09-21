@@ -1,10 +1,15 @@
-use material::{Lambertian, Metalic};
+use std::sync::Arc;
+use std::time::Instant;
+
+use material::{Lambertian, Metalic, Material};
 use rand::prelude::*;
 
 use cgmath::{Vector3, Vector2, Point3, InnerSpace, vec3, EuclideanSpace, Zero, vec2};
 use hittable::{Sphere, HittableList};
 use image::{ RgbImage, ImageBuffer, Rgb };
 use ray::Ray;
+use rayon::prelude::IntoParallelIterator;
+use rayon::prelude::*;
 use types::Float;
 
 mod types;
@@ -22,28 +27,37 @@ const MAX_BOUNCES: usize = 50;
 fn main() {
     // let img: RgbImage = ImageBuffer::new(WIDTH, HEIGHT);
     
-    let white_base = Lambertian::new((1.0, 1.0, 1.0));
-    let red_base = Lambertian::new((0.8, 0.2, 0.5));
+    let mut vector: Vec<Arc<dyn Material + Send + Sync>> = Vec::new();
     
-    let metal = Metalic::new((1.0, 1.0, 1.0));
-    let metal_gold = Metalic::new((0.8, 0.6, 0.2));
+    let white_base = Arc::new(Lambertian::new((1.0, 1.0, 1.0)));
+    vector.push(white_base);
+    let red_base = Arc::new(Lambertian::new((0.8, 0.2, 0.5)));
+    vector.push(red_base);
+    
+    let metal = Arc::new(Metalic::new((1.0, 1.0, 1.0)));
+    vector.push(metal);
+    let metal_gold = Arc::new(Metalic::new((0.8, 0.6, 0.2)));
+    vector.push(metal_gold);
     
     let mut list = HittableList::new();
-    list.add(Sphere::new((0.2, 0.0, -1.0), 0.5, &white_base));
-    list.add(Sphere::new((-0.75, -0.25, -0.8), 0.25, &metal));
-    list.add(Sphere::new((-0.35, -0.35, -0.7), 0.125, &metal_gold));
-    list.add(Sphere::new((0.7, -0.5, -0.8), 0.25, &red_base));
+    list.add(Arc::new(Sphere::new((0.2, 0.0, -1.0), 0.5, &vector[0])));
+    list.add(Arc::new(Sphere::new((-0.75, -0.25, -0.8), 0.25, &vector[2])));
+    list.add(Arc::new(Sphere::new((-0.35, -0.35, -0.7), 0.125, &vector[3])));
+    // list.add(Sphere::new((0.7, -0.5, -0.8), 0.25, &red_base));
 
     // ground
-    list.add(Sphere::new((0.0, -100.5, -1.0), 100.0, &red_base));
+    list.add(Arc::new(Sphere::new((0.0, -100.5, -1.0), 100.0, &vector[1])));
 
-    
+    let start = Instant::now();
     let mut rng = rand::rngs::SmallRng::from_entropy(); // rand::thread_rng();
     
-    let img: RgbImage = ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
+    let pixels: Vec<Rgb<u8>> = (0..(WIDTH * HEIGHT)).into_par_iter().map(|idx| {
+        let x = (idx % WIDTH) as Float;
+        let y = (idx / WIDTH) as Float;
         let mut color = Vector3::zero();
         for _i in 0..SAMPELS_PER_PIXEL {
-            let (x, y) = ((x as Float + rng.gen::<Float>()) / WIDTH as Float, (y as Float + rng.gen::<Float>()) / HEIGHT as Float);
+            let mut rng = rand::thread_rng();
+            let (x, y) = ((x + rng.gen::<Float>()) / WIDTH as Float, (y + rng.gen::<Float>()) / HEIGHT as Float);
             let mut uv = (Vector2::new(x, y)) * 2.0 - Vector2::new(1.0, 1.0);
             uv.x *= ASPECT;
             uv.y *= -1.0;
@@ -52,9 +66,29 @@ fn main() {
             color += res;
         }
         to_color(color, SAMPELS_PER_PIXEL)
-    });
+    }).collect();
+    
+    println!("main render done at {}ms", start.elapsed().as_millis());
+    
+    let img: RgbImage = ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| pixels[(x + y * WIDTH) as usize]);
+    
+    // let img: RgbImage = ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
+    //     let mut color = Vector3::zero();
+    //     for _i in 0..SAMPELS_PER_PIXEL {
+    //         let (x, y) = ((x as Float + rng.gen::<Float>()) / WIDTH as Float, (y as Float + rng.gen::<Float>()) / HEIGHT as Float);
+    //         let mut uv = (Vector2::new(x, y)) * 2.0 - Vector2::new(1.0, 1.0);
+    //         uv.x *= ASPECT;
+    //         uv.y *= -1.0;
+
+    //         let res = pixel_color(uv, &list);
+    //         color += res;
+    //     }
+    //     to_color(color, SAMPELS_PER_PIXEL)
+    // });
         
+    println!("copy done at {}ms", start.elapsed().as_millis());
     img.save("render.png").expect("couldnt save image");
+    println!("save done at {}ms", start.elapsed().as_millis());
 }
 
 fn to_color(color: Vector3<Float>, spp: usize) -> Rgb<u8> {
