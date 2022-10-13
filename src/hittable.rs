@@ -67,6 +67,22 @@ impl Hittable for Sphere {
     }
 }
 
+pub struct Triangle {
+    vertecies: [Point3<Float>; 3],
+}
+
+impl Hittable for Triangle {
+    fn hit(&self, ray: &Ray, t_range: RangeInclusive<Float>) -> Option<HitRecord> {
+        let s = self.vertecies[0];
+        let o = ray.origin;
+        let v = o - s;
+        let d_1 = self.vertecies[1] - self.vertecies[0];
+        let d_2 = self.vertecies[2] - self.vertecies[0];
+        let n = d_1.cross(d_2);
+
+        todo!()
+    }
+}
 
 pub struct HittableList {
     objects: Vec<Arc<dyn Hittable + Sync + Send>>,
